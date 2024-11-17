@@ -481,8 +481,8 @@ def reparameterize_model(model, variant='s0', num_classes=1000, input_size=(224,
             for j, (mod, deploy_mod) in enumerate(zip(module.layers, deploy_module.layers)):
                 if hasattr(mod, 'get_equivalent_kernel_bias'):
                     print(f"Reparam layer j: {j}")
-                    if i==1 and j==2:
-                        print("err her")
+                    # if i==1 and j==2:
+                    #     print("err her")
                     kernel, bias = mod.get_equivalent_kernel_bias()
                     deploy_mod.reparam_conv.set_weights([kernel, bias])
     
