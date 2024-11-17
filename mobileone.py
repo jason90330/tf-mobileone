@@ -89,14 +89,21 @@ class MobileOneBlock(layers.Layer):
         self.activation = layers.ReLU()
 
         if inference_mode:
-            self.reparam_conv = layers.Conv2D(
-                filters = out_channels,
-                kernel_size = kernel_size,
-                strides = stride,
-                padding = padding,
-                dilation_rate = dilation,
-                use_bias = True
-            )
+            if self.groups==1:
+                self.reparam_conv = layers.Conv2D(
+                    filters = out_channels,
+                    kernel_size = kernel_size,
+                    strides = stride,
+                    padding = padding,
+                    dilation_rate = dilation,
+                    use_bias = True
+                )
+            else:
+                self.reparam_conv = layers.DepthwiseConv2D(
+                    kernel_size=kernel_size, 
+                    strides=stride, 
+                    padding=padding, 
+                    use_bias=True)
 
         else:
             # Re-parameterizable skip connection
@@ -144,16 +151,27 @@ class MobileOneBlock(layers.Layer):
                  kernel_size: int, 
                  padding: str) -> tf.keras.Sequential:
         mod_list = []
-        mod_list.append(
-            layers.Conv2D(
-                filters = self.out_channels,
-                kernel_size = kernel_size,
-                strides = self.stride,
-                padding = padding,
-                use_bias = False,
-                name="conv"
+        if self.groups==1:
+            mod_list.append(
+                layers.Conv2D(
+                    filters = self.out_channels,
+                    kernel_size = kernel_size,
+                    strides = self.stride,
+                    padding = padding,
+                    use_bias = False,
+                    name="conv"
+                )
             )
-        )
+        else:
+            mod_list.append(
+                layers.DepthwiseConv2D(
+                    kernel_size=kernel_size, 
+                    strides=self.stride, 
+                    padding=padding,
+                    use_bias=False,
+                    name="conv"
+                )
+            )
         mod_list.append(
             layers.BatchNormalization(axis=-1, name="bn")
         )
@@ -272,9 +290,15 @@ class MobileOneBlock(layers.Layer):
             gamma = branch.gamma
             beta = branch.beta
             eps = branch.epsilon
+            if self.groups!=1:
+                w,h,cin,cout = kernel.shape
+                kernel = tf.reshape(kernel, (w,h,cout,cin))
         std = tf.sqrt((moving_variance + eps))
         # t = (gamma / std).reshape(-1, 1, 1, 1)
-        t = tf.reshape((gamma / std), (1, 1, 1, -1))
+        if self.groups==1:
+            t = tf.reshape((gamma / std), (1, 1, 1, -1))
+        else:
+            t = tf.reshape((gamma / std), (1, 1, -1, 1))
         return kernel * t, beta - moving_mean * gamma / std
     
 class MobileOne(tf.keras.Model):
@@ -457,15 +481,19 @@ def reparameterize_model(model, variant='s0', num_classes=1000, input_size=(224,
             for j, (mod, deploy_mod) in enumerate(zip(module.layers, deploy_module.layers)):
                 if hasattr(mod, 'get_equivalent_kernel_bias'):
                     print(f"Reparam layer j: {j}")
-                    if i==2 and j==1:
+                    if i==1 and j==2:
                         print("err her")
                     kernel, bias = mod.get_equivalent_kernel_bias()
                     deploy_mod.reparam_conv.set_weights([kernel, bias])
     
     if save_path is not None:
-        os.makedirs(save_path)
+        os.makedirs(save_path, exist_ok=True)
+        
+        #Save Only the Model Weights
         weight_path = f"{save_path}/.weights.h5"
         deploy_model.save_weights(weight_path)
+
+        #Save the whole
         # deploy_model.save(save_path)
         deploy_model.export(save_path)
 

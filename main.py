@@ -14,3 +14,9 @@ print(o)
 
 
 deploy_model = reparameterize_model(model=model, variant='s0',  input_size=(224,224,3), save_path="reparam")
+
+converter = tf.lite.TFLiteConverter.from_keras_model(deploy_model)
+tflite_model = converter.convert()
+# Save the TFLite model to a file
+with open("./tflite_reparam/model.tflite", "wb") as f:
+    f.write(tflite_model)
